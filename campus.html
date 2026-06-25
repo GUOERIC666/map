@@ -666,10 +666,6 @@
       {code:'A104', type:'classroom'}, {code:'A105', type:'classroom'},
       {code:'女厕', type:'toilet', span:.55}, {code:'A106', type:'classroom'},
     ];
-    const ROOMS14E = [
-      {code:'计算机教室', type:'computer', span:1.2}, {code:'会议室', type:'meeting'},
-      {code:'会议室', type:'meeting'}, {code:'休息区', type:'rest'},
-    ];
 
     const floorLabels = [];   // CSS2D labels for the floor plans — only shown in IB-interior mode
     const floorCut = (function buildInteriors(){
@@ -696,6 +692,7 @@
       function tileCell(g,x0,x1,z0,z1,r){
         const tile=new THREE.Mesh(new THREE.BoxGeometry((x1-x0)-0.3,0.5,(z1-z0)-0.3), tileMat(r.type));
         tile.position.set((x0+x1)/2,0.3,(z0+z1)/2); tile.receiveShadow=true; g.add(tile);
+        if(!r.code) return;                          // unlabeled tile (e.g. corridor strip)
         const div=document.createElement('div'); div.className='room-lbl room-'+(r.type||'room');
         div.innerHTML=`<b>${r.code}</b>`+(r.name?`<small>${r.name}</small>`:'');
         const lb=new CSS2DObject(div); lb.position.set((x0+x1)/2,2.3,(z0+z1)/2); lb.visible=false; g.add(lb); floorLabels.push(lb);
@@ -724,11 +721,17 @@
       title(g16,'IB 楼 · 1F', -D16/2-2);
       g16.position.set(-47,0,22); root.add(g16);
 
-      /* Building 14 — west A-rooms + east wing (computer room on top, small rooms
-         left / open zones right), matching the floor plan */
+      /* Building 14 — double-loaded corridor school layout:
+         west wall = classrooms + toilets · central N-S corridor ·
+         east band = computer room (top) then an office area where small rooms
+         (会议室 / 休息区) are embedded along the hall and large open zones
+         (办公室 / student center / lab) line the east wall with circulation
+         gaps between them. */
       const g14=new THREE.Group(); const W14=14, D14=30, HD=D14/2;
       perimeter(g14,W14,D14);
-      const wX0=-W14/2, wX1=-2.5;                     // west classroom block (full depth)
+
+      // west classroom band ---------------------------------------------
+      const wX0=-W14/2, wX1=-2.5;
       const totalW=ROOMS14W.reduce((s,r)=>s+(r.span||1),0); let z=-HD;
       for(let i=0;i<ROOMS14W.length;i++){
         const r=ROOMS14W[i], z0=z, z1=z+D14*(r.span||1)/totalW;
@@ -736,20 +739,35 @@
         if(i>0) hWall(g14,wX0,wX1,z0);
         z=z1;
       }
-      vWall(g14,-HD,HD,wX1);                          // wall: west block | east wing
+      vWall(g14,-HD,HD,wX1);                          // wall: classrooms | corridor
 
-      /* east wing: 计算机教室 fills the top; below = small rooms (left) + open zones (right) */
-      const eX0=wX1, eX1=W14/2, mid=1, zc=-8, zr1=-0.4, zr2=7.2;
-      tileCell(g14, eX0, eX1, -HD, zc,  {code:'计算机教室', type:'computer'});
-      tileCell(g14, eX0, mid, zc,  zr1, {code:'会议室', type:'meeting'});
-      tileCell(g14, mid, eX1, zc,  zr1, {code:'办公室', type:'open'});
-      tileCell(g14, eX0, mid, zr1, zr2, {code:'会议室', type:'meeting'});
-      tileCell(g14, mid, eX1, zr1, zr2, {code:'student center', type:'open'});
-      tileCell(g14, eX0, mid, zr2, HD,  {code:'休息区', type:'rest'});
-      tileCell(g14, mid, eX1, zr2, HD,  {code:'lab', type:'open'});
-      hWall(g14, eX0, eX1, zc);                       // computer-room bottom
-      vWall(g14, zc, HD, mid);                        // small rooms | open zones
-      hWall(g14, eX0, eX1, zr1); hWall(g14, eX0, eX1, zr2);   // row dividers
+      // central corridor ------------------------------------------------
+      const cX0=wX1, cX1=-1;
+      tileCell(g14, cX0, cX1, -HD, HD, {code:'走廊', type:'corridor'});
+      vWall(g14,-HD,HD,cX1);                          // wall: corridor | east band
+
+      // east band -------------------------------------------------------
+      const eX0=cX1, eX1=W14/2, sMid=1.5, compZ=-8;
+      tileCell(g14, eX0, eX1, -HD, compZ, {code:'计算机教室', type:'computer'}); // top
+      hWall(g14, eX0, eX1, compZ);
+
+      // three rows: a small embedded room on the hall side + a large open
+      // zone on the east wall, with corridor gaps between the open zones.
+      const rows=[
+        {small:{code:'会议室',type:'meeting'}, open:{code:'办公室',type:'open'}},
+        {small:{code:'会议室',type:'meeting'}, open:{code:'student center',type:'open'}},
+        {small:{code:'休息区',type:'rest'},   open:{code:'lab',type:'open'}},
+      ];
+      const rz=[compZ, -0.4, 7.6, HD], pad=1.2;
+      for(let i=0;i<3;i++){
+        const z0=rz[i], z1=rz[i+1], mz=(z0+z1)/2;
+        // large open zone, inset to leave circulation gaps top & bottom
+        tileCell(g14, sMid, eX1, z0+(i?pad/2:0.4), z1-(i<2?pad/2:0.4), rows[i].open);
+        // small meeting/rest room embedded along the corridor (clearly smaller)
+        tileCell(g14, eX0, sMid, mz-2.6, mz+2.6, rows[i].small);
+        // corridor strip between this open zone and the next one
+        if(i<2) tileCell(g14, eX0, eX1, rz[i+1]-pad/2, rz[i+1]+pad/2, {type:'corridor'});
+      }
 
       title(g14,'剑桥楼 · 1F', -HD-2);
       g14.position.set(-31,0,22); root.add(g14);
